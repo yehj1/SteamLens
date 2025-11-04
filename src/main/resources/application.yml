@@ -1,0 +1,43 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: url
+    username: username
+    password: password
+  sql:
+    init:
+      mode: never
+  main:
+    allow-bean-definition-overriding: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    com.gpr: INFO
+
+gpr:
+  apiKey: ${GPR_API_KEY:}
+  serpapi:
+    baseUrl: https://serpapi.com
+    apiKey: ${SERPAPI_KEY:}
+    engine: google_play_product
+    defaultLang: en
+    defaultCountries: us
+    maxRetries: 1
+  volc:
+    baseUrl: ${VOLC_BASE_URL:https://ark.cn-beijing.volces.com/api/v3}
+    apiKey: ${VOLC_API_KEY:}
+    model: ${VOLC_MODEL:deepseek-v3-1-terminus}
+    timeoutMs: ${VOLC_TIMEOUT_MS:90000}
+    temperature: 0.1
+  steam:
+    baseUrl: ${STEAM_BASE_URL:https://store.steampowered.com}
+    proxyHost: ${STEAM_PROXY_HOST:127.0.0.1}
+    proxyPort: ${STEAM_PROXY_PORT:7897}

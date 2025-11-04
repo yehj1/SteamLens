@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>评论抓取与洞察测试台</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: "Microsoft YaHei", Arial, sans-serif; margin: 2rem; background: #f5f6fa; color: #333; }
+        h1 { margin-bottom: 0.5rem; }
+        section { background: #fff; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.08); margin-bottom: 1.5rem; }
+        label { display: block; margin-top: 0.75rem; font-weight: 600; }
+        input, textarea { width: 100%; padding: 0.5rem; margin-top: 0.25rem; border: 1px solid #ccd1d9; border-radius: 4px; }
+        button { margin-top: 1rem; padding: 0.6rem 1.2rem; border: none; border-radius: 4px; background: #4a6cf7; color: #fff; cursor: pointer; }
+        button:disabled { background: #9aa5ff; cursor: wait; }
+        pre { background: #1e1e1e; color: #c7d4f2; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+        .inline { display: flex; gap: 1rem; }
+        .inline > div { flex: 1; }
+        .output-tabs { display: flex; gap: 0.5rem; margin-top: 1rem; align-items: center; }
+        .output-tabs button { flex: none; background: #e1e6ff; color: #222; }
+        .output-tabs button.active { background: #4a6cf7; color: #fff; }
+        .download-btn { margin-left: auto; background: #1f8a4d; color: #fff; }
+        .download-btn:disabled { background: #8fc8a8; cursor: not-allowed; }
+        .dual-output { display: none; }
+        .dual-output.active { display: block; }
+    </style>
+</head>
+<body>
+<h1>评论抓取与洞察测试台</h1>
+<p>通过页面快速调用后端接口进行评论抓取与洞察生成，确保后端已启动并可访问。</p>
+
+<section>
+    <h2>Steam 游戏洞察生成</h2>
+    <form id="pipeline-form">
+        <label>Steam App ID
+            <input name="appId" placeholder="730" required>
+        </label>
+        <div class="inline">
+            <div>
+                <label>抓取语言
+                    <input name="lang" placeholder="schinese" value="schinese">
+                </label>
+            </div>
+            <div>
+                <label>抓取数量上限
+                    <input name="limit" type="number" min="50" max="1000" value="300">
+                </label>
+            </div>
+        </div>
+        <div class="inline">
+            <div>
+                <label>时间范围（天）
+                    <input name="dayRange" type="number" min="0" value="30">
+                </label>
+            </div>
+            <div>
+                <label>洞察最大评论数
+                    <input name="maxRows" type="number" min="50" max="1000" value="300">
+                </label>
+            </div>
+        </div>
+        <label>API Key（若启用了鉴权）
+            <input name="apiKey" placeholder="仅当开启 X-API-Key 时填写">
+        </label>
+        <button type="submit">一键抓取并生成报告</button>
+    </form>
+    <small>
+        🔍 不知道 AppID？可在 <a href="https://steamdb.info/" target="_blank" rel="noopener noreferrer">SteamDB</a> 搜索游戏，或直接访问
+        <code>https://store.steampowered.com/app/<em>AppID</em></code> 确认。
+    </small>
+    <pre id="status-log">填写信息后点击按钮开始分析。</pre>
+
+    <div class="output-tabs">
+        <button type="button" data-target="insight-json" class="active">结构化 JSON</button>
+        <button type="button" data-target="insight-md">Markdown 报告</button>
+        <button type="button" id="download-md" class="download-btn" disabled>下载 Markdown</button>
+    </div>
+    <pre id="insight-output" class="dual-output active">等待分析结果...</pre>
+    <pre id="insight-md-output" class="dual-output"></pre>
+</section>
+
+<script>
+    let lastMarkdown = '';
+    let lastJsonPretty = '';
+
+    async function handleSubmit(form, endpoint, output, transform, options = {}) {
+        const {
+            sendingMessage = '正在发送请求...',
+            failMessage = '请求失败：',
+            skipDisable = false
+        } = options;
+
+        const formData = new FormData(form);
+        const data = {};
+        for (const [key, value] of formData.entries()) {
+            if (value !== null && value !== undefined) {
+                data[key] = value;
+            }
+        }
+        if (typeof transform === 'function') {
+            transform(data);
+        }
+        const headers = { 'Content-Type': 'application/json' };
+        if (data.apiKey && data.apiKey.trim().length > 0) {
+            headers['X-API-Key'] = data.apiKey.trim();
+        }
+        delete data.apiKey;
+
+        for (const key of Object.keys(data)) {
+            if (data[key] === '') {
+                delete data[key];
+            }
+        }
+
+        for (const key of Object.keys(data)) {
+            const value = data[key];
+            if (typeof value === 'string' && !Number.isNaN(Number(value))) {
+                const numeric = Number(value);
+                if (!Number.isNaN(numeric) && value.trim() === numeric.toString()) {
+                    data[key] = numeric;
+                }
+            }
+        }
+
+        if (output) {
+            output.textContent = sendingMessage;
+        }
+        const button = form.querySelector('button');
+        if (!skipDisable && button) {
+            button.disabled = true;
+        }
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(data)
+            });
+            const text = await response.text();
+            if (output) {
+                output.textContent = `${response.status} ${response.statusText}\n\n${text}`;
+            }
+            return { status: response.status, ok: response.ok, body: text };
+        } catch (err) {
+            if (output) {
+                output.textContent = failMessage + err;
+            }
+            return null;
+        } finally {
+            if (!skipDisable && button) {
+                button.disabled = false;
+            }
+        }
+    }
+
+    const statusLog = document.getElementById('status-log');
+    const outputJsonEl = document.getElementById('insight-output');
+    const outputMdEl = document.getElementById('insight-md-output');
+    const downloadBtnEl = document.getElementById('download-md');
+    let currentAppId = '';
+
+    document.getElementById('pipeline-form').addEventListener('submit', async function (event) {
+        event.preventDefault();
+        const form = event.target;
+        const button = form.querySelector('button');
+        button.disabled = true;
+        downloadBtnEl.disabled = true;
+        outputJsonEl.textContent = '等待分析结果...';
+        outputMdEl.textContent = '';
+        lastMarkdown = '';
+        lastJsonPretty = '';
+
+        const appIdInput = form.querySelector('input[name="appId"]');
+        currentAppId = appIdInput ? appIdInput.value.trim() : '';
+
+        statusLog.textContent = '① 正在抓取 Steam 评论...';
+
+        const fetchResult = await handleSubmit(form, '/fetch/steam', null, data => {
+            data.appId = data.appId?.trim();
+            if (!data.lang || data.lang === '') {
+                data.lang = 'all';
+            }
+            if (!data.filter || data.filter === '') {
+                data.filter = 'recent';
+            }
+            data.reviewType = 'all';
+            data.purchaseType = 'all';
+            delete data.maxRows;
+            delete data.countries;
+        }, { skipDisable: true, sendingMessage: '', failMessage: '请求失败：' });
+
+        if (!fetchResult || !fetchResult.ok) {
+            statusLog.textContent += `\n抓取失败，请检查网络或参数。`;
+            button.disabled = false;
+            return;
+        }
+
+        let savedText = '';
+        try {
+            const parsed = JSON.parse(fetchResult.body);
+            if (parsed && typeof parsed.saved !== 'undefined') {
+                savedText = `，新增 ${parsed.saved} 条评论`;
+            }
+        } catch (_) {
+            // ignore parse errors for status
+        }
+        statusLog.textContent += `
+抓取完成${savedText}。`;
+
+        statusLog.textContent += `\n② 正在生成洞察报告...`;
+
+        const insightResult = await handleSubmit(form, '/insights/summarize', outputJsonEl, data => {
+            const id = data.appId;
+            data.packageId = id;
+            delete data.appId;
+            if (data.countries) {
+                data.countries = data.countries.split(',').map(s => s.trim()).filter(Boolean);
+                if (data.countries.length === 0) {
+                    delete data.countries;
+                }
+            }
+            if (!data.lang || data.lang === '') {
+                data.lang = 'schinese';
+            }
+            delete data.limit;
+            delete data.dayRange;
+            delete data.filter;
+            delete data.reviewType;
+            delete data.purchaseType;
+        }, { skipDisable: true, sendingMessage: '正在请求洞察...', failMessage: '请求失败：' });
+
+        if (!insightResult || !insightResult.ok) {
+            statusLog.textContent += `\n洞察生成失败，请查看日志。`;
+            button.disabled = false;
+            return;
+        }
+
+        const bodyStart = outputJsonEl.textContent.indexOf('\n\n');
+        const rawBody = bodyStart >= 0 ? outputJsonEl.textContent.slice(bodyStart + 2) : outputJsonEl.textContent;
+
+        try {
+            const parsed = JSON.parse(rawBody);
+            let summaryJson = parsed.summaryJson;
+            if (typeof summaryJson === 'string') {
+                try {
+                    summaryJson = JSON.parse(summaryJson);
+                } catch (_) {
+                    // keep string
+                }
+            }
+            if (summaryJson) {
+                const pretty = typeof summaryJson === 'object'
+                    ? JSON.stringify(summaryJson, null, 2)
+                    : summaryJson;
+                outputJsonEl.textContent = pretty;
+                lastJsonPretty = pretty;
+            }
+
+            let markdown = parsed.summaryMd;
+            if (!markdown && summaryJson) {
+                markdown = generateMarkdown(summaryJson, currentAppId);
+            }
+            if (markdown) {
+                outputMdEl.textContent = markdown;
+                lastMarkdown = markdown;
+                downloadBtnEl.disabled = false;
+                triggerMarkdownDownload(`Steam-${currentAppId || 'report'}-${Date.now()}.md`);
+                statusLog.textContent += `\n③ 洞察生成完成，已自动下载 Markdown 报告。`;
+            } else {
+                statusLog.textContent += `\n③ 洞察生成完成。`;
+            }
+        } catch (err) {
+            outputJsonEl.textContent += `\n\n解析响应失败：${err}`;
+            statusLog.textContent += `\n结果解析失败，请查看结构化 JSON。`;
+        }
+
+        button.disabled = false;
+    });
+
+    document.querySelectorAll('.output-tabs button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.output-tabs button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            document.querySelectorAll('.dual-output').forEach(el => el.classList.remove('active'));
+            const targetId = btn.getAttribute('data-target');
+            document.getElementById(targetId === 'insight-json' ? 'insight-output' : 'insight-md-output').classList.add('active');
+        });
+    });
+
+    document.getElementById('download-md').addEventListener('click', () => {
+        triggerMarkdownDownload();
+    });
+
+    function triggerMarkdownDownload(filename) {
+        if (!lastMarkdown) {
+            return;
+        }
+        const blob = new Blob([lastMarkdown], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename || `洞察报告-${Date.now()}.md`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
+
+    function generateMarkdown(summary, appId) {
+        let data = summary;
+        try {
+            if (typeof summary === 'string') {
+                data = JSON.parse(summary);
+            }
+        } catch (_) {
+            return summary;
+        }
+        if (typeof data !== 'object' || data === null) {
+            return String(summary);
+        }
+        const lines = [];
+        lines.push(`# 洞察报告（Steam AppID: ${appId || '未知'}）`);
+        if (Array.isArray(data.themes) && data.themes.length) {
+            lines.push('\n## 主题概览');
+            data.themes.forEach((theme, idx) => {
+                lines.push(`\n### ${idx + 1}. ${theme.name ?? '未命名主题'}`);
+                if (theme.count !== undefined) {
+                    lines.push(`- 提及次数：${theme.count}`);
+                }
+                if (theme.neg_ratio !== undefined) {
+                    const percent = typeof theme.neg_ratio === 'number'
+                        ? `${Math.round(theme.neg_ratio * 100)}%`
+                        : theme.neg_ratio;
+                    lines.push(`- 负向占比：${percent}`);
+                }
+                if (Array.isArray(theme.sample_quotes) && theme.sample_quotes.length) {
+                    lines.push('- 示例引用：');
+                    theme.sample_quotes.forEach(q => lines.push(`  - ${q}`));
+                }
+                if (Array.isArray(theme.related_needs) && theme.related_needs.length) {
+                    lines.push('- 相关需求：');
+                    theme.related_needs.forEach(n => lines.push(`  - ${n}`));
+                }
+            });
+        }
+        if (data.overall && typeof data.overall === 'object') {
+            lines.push('\n## 整体情感');
+            Object.entries(data.overall).forEach(([key, value]) => {
+                lines.push(`- ${translateSentimentKey(key)}：${value}`);
+            });
+        }
+        if (Array.isArray(data.key_findings) && data.key_findings.length) {
+            lines.push('\n## 关键发现');
+            data.key_findings.forEach((finding, idx) => {
+                lines.push(`${idx + 1}. ${finding}`);
+            });
+        }
+        lines.push('\n---\n报告由 GreyMatter Steam 洞察引擎自动生成。');
+        return lines.join('\n').trim();
+    }
+
+    function translateSentimentKey(key) {
+        switch (key) {
+            case 'pos':
+                return '正向';
+            case 'neg':
+                return '负向';
+            case 'neu':
+                return '中性';
+            default:
+                return key;
+        }
+    }
+</script>
+
+</body>
+</html>
