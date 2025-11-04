@@ -33,3 +33,13 @@ CREATE TABLE IF NOT EXISTS insights (
   summary_md TEXT,
   summary_json JSONB
 );
+
+-- Steam-specific columns and uniqueness constraints
+ALTER TABLE reviews
+  ADD COLUMN IF NOT EXISTS recommendation_id TEXT,
+  ADD COLUMN IF NOT EXISTS playtime_forever INT,
+  ADD COLUMN IF NOT EXISTS author_id TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_reviews_steam_source_recid
+  ON reviews (review_source, recommendation_id)
+  WHERE review_source = 'steam';
